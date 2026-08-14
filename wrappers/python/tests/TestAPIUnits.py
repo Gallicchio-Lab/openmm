@@ -782,6 +782,14 @@ class TestAPIUnits(unittest.TestCase):
         #particle 3: stationary particle
         force.addParticle()
 
+        #particles 4-6: frame1 particles
+        force.addParticle()
+        force.addParticle()
+        force.addParticle()
+        #particle 7: frame-displaced particle
+        p = force.addParticle()
+        force.setParticleTransformation(p, ParticleFrameDisplacement(0, 1, 2, 4, 5, 6))
+
         self.assertEqual(0.1, force.getGlobalParameterDefaultValue(0))
         self.assertEqual(0.2, force.getGlobalParameterDefaultValue(1))
         self.assertEqual(0.3, force.getGlobalParameterDefaultValue(2))
@@ -816,6 +824,26 @@ class TestAPIUnits(unittest.TestCase):
         d1, d0 = force.getParticleParameters(3)
         self.assertEqual(Vec3(0, 0, 0)*nanometers, d1)
         self.assertEqual(Vec3(0, 0, 0)*nanometers, d0)
+
+        framedisplacement_transformation = force.getParticleTransformation(7)
+        a_t = framedisplacement_transformation.getTargetOriginParticle1()
+        b_t = framedisplacement_transformation.getTargetDirectionParticle1()
+        c_t = framedisplacement_transformation.getTargetPlaneParticle1()
+        a_s = framedisplacement_transformation.getSourceOriginParticle1()
+        b_s = framedisplacement_transformation.getSourceDirectionParticle1()
+        c_s = framedisplacement_transformation.getSourcePlaneParticle1()
+        self.assertEqual( 0, a_t)
+        self.assertEqual( 1, b_t)
+        self.assertEqual( 2, c_t)
+        self.assertEqual( 4, a_s)
+        self.assertEqual( 5, b_s)
+        self.assertEqual( 6, c_s)
+        self.assertEqual( -1, framedisplacement_transformation.getTargetOriginParticle0())
+        self.assertEqual( -1, framedisplacement_transformation.getTargetDirectionParticle0())
+        self.assertEqual( -1, framedisplacement_transformation.getTargetPlaneParticle0())
+        self.assertEqual( -1, framedisplacement_transformation.getSourceOriginParticle0())
+        self.assertEqual( -1, framedisplacement_transformation.getSourceDirectionParticle0())
+        self.assertEqual( -1, framedisplacement_transformation.getSourcePlaneParticle0())
 
     def testDrudeForce(self):
         """ Tests the DrudeForce API features """

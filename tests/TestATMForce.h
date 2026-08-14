@@ -56,9 +56,15 @@ using namespace std;
 void testAPI(){
     ATMForce* atm = new ATMForce(0.1, 0.2, 0.3, 0.4, 0.5, 0.7, 0.6, 0.8, -1.0);
     atm->addParticle(Vec3(1, 2, 3), Vec3(4, 5, 6)); //old interface
-    atm->addParticle(new ATMForce::FixedDisplacement(Vec3(7, 8, 9), Vec3(10, 11, 12)));
-    atm->addParticle(new ATMForce::ParticleOffsetDisplacement(1, 0));
-    atm->addParticle();
+    atm->addParticle(new ATMForce::FixedDisplacement(Vec3(7, 8, 9), Vec3(10, 11, 12))); //particle 1
+    atm->addParticle(new ATMForce::ParticleOffsetDisplacement(1, 0)); //particle 2
+    
+    atm->addParticle(); //particle 3
+    atm->addParticle(); //particle 4
+    atm->addParticle(); //particle 5
+
+    atm->addParticle(new ATMForce::ParticleFrameDisplacement(3, 4, 5,  0, 1, 2));//particle 6
+    atm->addParticle(); //particle 7
 
     Vec3 d1, d0;
     atm->getParticleParameters(0, d1, d0);
@@ -81,7 +87,21 @@ void testAPI(){
     ASSERT_EQUAL(-1, j0);
     ASSERT_EQUAL(-1, i0);
 
-    atm->getParticleParameters(3, d1, d0);
+    const ATMForce::ParticleFrameDisplacement* ft = (dynamic_cast<const ATMForce::ParticleFrameDisplacement*>(&(atm->getParticleTransformation(6))));
+    int pjOrigin1 = ft->getTargetOriginParticle1();
+    int pjDirection1 = ft->getTargetDirectionParticle1();
+    int pjPlane1 = ft->getTargetPlaneParticle1();
+    int piOrigin1 = ft->getSourceOriginParticle1();
+    int piDirection1 = ft->getSourceDirectionParticle1();
+    int piPlane1 = ft->getSourcePlaneParticle1();
+    ASSERT_EQUAL( 3, pjOrigin1);
+    ASSERT_EQUAL( 4, pjDirection1);
+    ASSERT_EQUAL( 5, pjPlane1);
+    ASSERT_EQUAL( 0, piOrigin1);
+    ASSERT_EQUAL( 1, piDirection1);
+    ASSERT_EQUAL( 2, piPlane1);
+
+    atm->getParticleParameters(7, d1, d0);
     ASSERT_EQUAL_VEC(Vec3(0, 0, 0), d1, 1e-6);
     ASSERT_EQUAL_VEC(Vec3(0, 0, 0), d0, 1e-6);
 }
@@ -551,6 +571,95 @@ void testParticlesCustomExpressionSoftplus() {
     ASSERT_EQUAL_VEC(Vec3(-bfp*displ[0], 0.0, 0.0), state.getForces()[1], 1e-6);
 }
 
+
+void testFrameDisplacement() {
+    // frame-based displacements
+
+    System system;
+    // origin frame particles: particles 0, 1, and 2
+    system.addParticle(1.0);
+    system.addParticle(1.0);
+    system.addParticle(1.0);
+    // destination frame particles: particles 3, 4, and 5
+    system.addParticle(1.0);
+    system.addParticle(1.0);
+    system.addParticle(1.0);
+    // particle on origin frame: particle 6
+    system.addParticle(1.0);
+    // particle on destination frame: particle 7
+    system.addParticle(1.0);
+
+    vector<int> frame0 = {0, 1, 2};
+    vector<int> frame1 = {3, 4, 5};
+    int side0 = 6;
+    int side1 = 7;
+        
+    vector<Vec3> positions(8);
+    Vec3 displ = {0., 5., 0.};
+    positions[frame0[0]] = Vec3(0.,  0.,   0.); //A
+    positions[frame0[1]] = Vec3(0.,  0.,   2.); //B
+    positions[frame0[2]] = Vec3(1.,  0.,   1.); //C
+    positions[frame1[0]] = Vec3(0.,  0.,   0.) + displ; //A'
+    positions[frame1[1]] = Vec3(2.,  0.,   0.) + displ; //B'
+    positions[frame1[2]] = Vec3(2.,  0.,  -2.) + displ; //C'
+    positions[ side0] =    Vec3(-1.,  1.,   1.); //D
+    positions[ side1] =    Vec3(-3.,  1.,   3.) + displ; //E'
+
+    //quadratic bonds between side particles and their frame particles
+    CustomBondForce* bond = new CustomBondForce("1.0*r^2");
+    bond->addBond(side0, frame0[2]);
+    bond->addBond(side1, frame1[2]);
+
+    //create ATMForce
+    double lmbd = 0.5;
+    double umax =  0.;
+    double ubcore= 0.;
+    double acore = 0.;
+    double direction = 1.0;
+    ATMForce* atm = new ATMForce(lmbd, lmbd, 0., 0, 0, umax, ubcore, acore, direction);
+
+    //swap frame particles
+    atm->addParticle(new ATMForce::ParticleOffsetDisplacement(frame1[0],  frame0[0]));//A
+    atm->addParticle(new ATMForce::ParticleOffsetDisplacement(frame1[1],  frame0[1]));//B
+    atm->addParticle(new ATMForce::ParticleOffsetDisplacement(frame1[2],  frame0[2]));//C
+    atm->addParticle(new ATMForce::ParticleOffsetDisplacement(frame0[0],  frame1[0]));//A'
+    atm->addParticle(new ATMForce::ParticleOffsetDisplacement(frame0[1],  frame1[1]));//B'
+    atm->addParticle(new ATMForce::ParticleOffsetDisplacement(frame0[2],  frame1[2]));//C'
+
+    //swap frames of sidechain particles
+    atm->addParticle(new ATMForce::ParticleFrameDisplacement(frame1[0], frame1[1], frame1[2],  frame0[0], frame0[1], frame0[2])); //D
+    atm->addParticle(new ATMForce::ParticleFrameDisplacement(frame0[0], frame0[1], frame0[2],  frame1[0], frame1[1], frame1[2])); //E'
+
+    atm->addForce(bond);
+    system.addForce(atm);
+
+    VerletIntegrator integrator(1.0);
+    Context context(system, integrator, platform);
+    context.setPositions(positions);
+
+    State state = context.getState(State::Energy | State::Forces);
+    double epot = state.getPotentialEnergy();
+    double u0, u1, energy;
+    atm->getPerturbationEnergy(context, u1, u0, energy);
+    double epert = u1 - u0;
+    const vector<Vec3>& forces = state.getForces();
+
+    //expected energies
+    ASSERT_EQUAL_TOL(u0, 56.0, 1e-6);
+    ASSERT_EQUAL_TOL(u1, 44.0, 1e-6);
+    ASSERT_EQUAL_TOL(epert, -12.0, 1e-6);
+
+    //displaces C by a small amount and test the force
+    Vec3 fC = forces[2];
+    Vec3 delta = Vec3(0.01, 0.01, -0.01);
+    positions[frame0[2]] += delta;
+    context.setPositions(positions);
+    state = context.getState(State::Energy | State::Forces);
+    double epotp = state.getPotentialEnergy();
+    ASSERT_EQUAL_TOL(epotp - epot, -(fC[0]*delta[0]+fC[1]*delta[1]+fC[2]*delta[2]), 2e-3)
+    
+}
+
 void testLargeSystem() {
     // Create a system with lots of particles, each displaced differently.
 
@@ -827,6 +936,7 @@ int main(int argc, char* argv[]) {
         testNonbondedwithEndpointClash();
         testParticlesCustomExpressionLinear();
         testParticlesCustomExpressionSoftplus();
+        testFrameDisplacement();
         testLargeSystem();
         testLargeSystemSwap();
         testChangingBoxVectors();

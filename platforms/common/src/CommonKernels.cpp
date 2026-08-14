@@ -4404,23 +4404,50 @@ CommonCalcATMForceKernel::~CommonCalcATMForceKernel() {
 }
 
 
-void CommonCalcATMForceKernel::loadParams(int numParticles, const ATMForce& force, vector<Vec3>& d1, vector<Vec3>& d0, vector<int>& j1, vector<int>& i1, vector<int>& j0, vector<int>& i0) {
+void CommonCalcATMForceKernel::loadParams(int numParticles, const ATMForce& force, vector<Vec3>& d1, vector<Vec3>& d0,
+                                          vector<int>& j1, vector<int>& i1, vector<int>& j0, vector<int>& i0,
+                                          vector<int>& pAj1, vector<int>& pBj1, vector<int>& pCj1,
+                                          vector<int>& pAi1, vector<int>& pBi1, vector<int>& pCi1,
+                                          vector<int>& pAj0, vector<int>& pBj0, vector<int>& pCj0,
+                                          vector<int>& pAi0, vector<int>& pBi0, vector<int>& pCi0) {
     for (int p = 0; p < numParticles; p++) {
+        d1[p] = Vec3(0, 0, 0);
+        d0[p] = Vec3(0, 0, 0);
+        j1[p] = i1[p] = j0[p] = i0[p] = -1;
+        pAj1[p] = pBj1[p] = pCj1[p] = pAi1[p] = pBi1[p] = pCi1[p] = -1;
+        pAj0[p] = pBj0[p] = pCj0[p] = pAi0[p] = pBi0[p] = pCi0[p] = -1;
         const ATMForce::CoordinateTransformation& transformation = force.getParticleTransformation(p);
         if (dynamic_cast<const ATMForce::FixedDisplacement*>(&transformation) != NULL) {
             const ATMForce::FixedDisplacement* fd = dynamic_cast<const ATMForce::FixedDisplacement*>(&transformation);
             d1[p] = fd->getFixedDisplacement1();
             d0[p] = fd->getFixedDisplacement0();
-            j1[p] = i1[p] = j0[p] = i0[p] = -1;
         }
         else if (dynamic_cast<const ATMForce::ParticleOffsetDisplacement*>(&transformation) != NULL) {
             const ATMForce::ParticleOffsetDisplacement* vd = dynamic_cast<const ATMForce::ParticleOffsetDisplacement*>(&transformation);
-            d1[p] = Vec3(0, 0, 0);
-            d0[p] = Vec3(0, 0, 0);
             j1[p] = vd->getDestinationParticle1();
             i1[p] = vd->getOriginParticle1();
             j0[p] = vd->getDestinationParticle0();
             i0[p] = vd->getOriginParticle0();
+        }
+        else if (dynamic_cast<const ATMForce::ParticleFrameDisplacement*>(&transformation) != NULL) {
+	    const ATMForce::ParticleFrameDisplacement* vd = dynamic_cast<const ATMForce::ParticleFrameDisplacement*>(&transformation);
+            
+            pAj1[p] = vd->getTargetOriginParticle1();
+            pBj1[p] = vd->getTargetDirectionParticle1();
+            pCj1[p] = vd->getTargetPlaneParticle1();
+
+            pAi1[p] = vd->getSourceOriginParticle1();
+            pBi1[p] = vd->getSourceDirectionParticle1();
+            pCi1[p] = vd->getSourcePlaneParticle1();
+
+            pAj0[p] = vd->getTargetOriginParticle0();
+            pBj0[p] = vd->getTargetDirectionParticle0();
+            pCj0[p] = vd->getTargetPlaneParticle0();
+
+            pAi0[p] = vd->getSourceOriginParticle0();
+            pBi0[p] = vd->getSourceDirectionParticle0();
+            pCi0[p] = vd->getSourcePlaneParticle0();
+
         }
         else {
             throw OpenMMException("loadParams(): invalid particle Transformation");
@@ -4438,11 +4465,28 @@ void CommonCalcATMForceKernel::initialize(const System& system, const ATMForce& 
     vector<int> i1(numParticles);
     vector<int> j0(numParticles);
     vector<int> i0(numParticles);
+    vector<int> pAj1(numParticles);
+    vector<int> pBj1(numParticles);
+    vector<int> pCj1(numParticles);
+    vector<int> pAi1(numParticles);
+    vector<int> pBi1(numParticles);
+    vector<int> pCi1(numParticles);
+    vector<int> pAj0(numParticles);
+    vector<int> pBj0(numParticles);
+    vector<int> pCj0(numParticles);
+    vector<int> pAi0(numParticles);
+    vector<int> pBi0(numParticles);
+    vector<int> pCi0(numParticles);
     vector<Vec3> d1(numParticles);
     vector<Vec3> d0(numParticles);
-    loadParams(numParticles, force, d1, d0, j1, i1, j0, i0);
+    loadParams(numParticles, force, d1, d0, j1, i1, j0, i0, pAj1, pBj1, pCj1, pAi1, pBi1, pCi1, pAj0, pBj0, pCj0, pAi0, pBi0, pCi0);
 
     vector<mm_int4> displParticlesVector(cc.getPaddedNumAtoms(), mm_int4(-1, -1, -1, -1));
+    vector<mm_int4> displDestinationFrameParticles1V(cc.getPaddedNumAtoms(), mm_int4(-1, -1, -1, -1));
+    vector<mm_int4> displSourceFrameParticles1V(cc.getPaddedNumAtoms(), mm_int4(-1, -1, -1, -1));
+    vector<mm_int4> displDestinationFrameParticles0V(cc.getPaddedNumAtoms(), mm_int4(-1, -1, -1, -1));
+    vector<mm_int4> displSourceFrameParticles0V(cc.getPaddedNumAtoms(), mm_int4(-1, -1, -1, -1));
+
     if  (cc.getUseDoublePrecision()) {
         vector<mm_double4> displVector1(cc.getPaddedNumAtoms(), mm_double4(0, 0, 0, 0));
         vector<mm_double4> displVector0(cc.getPaddedNumAtoms(), mm_double4(0, 0, 0, 0));
@@ -4450,6 +4494,10 @@ void CommonCalcATMForceKernel::initialize(const System& system, const ATMForce& 
             displVector1[p] = mm_double4(d1[p][0], d1[p][1], d1[p][2], 0);
             displVector0[p] = mm_double4(d0[p][0], d0[p][1], d0[p][2], 0);
             displParticlesVector[p] = mm_int4(j1[p], i1[p], j0[p], i0[p]);
+            displDestinationFrameParticles1V[p] = mm_int4(pAj1[p], pBj1[p], pCj1[p], 0);
+            displSourceFrameParticles1V[p]      = mm_int4(pAi1[p], pBi1[p], pCi1[p], 0);
+            displDestinationFrameParticles0V[p] = mm_int4(pAj0[p], pBj0[p], pCj0[p], 0);
+            displSourceFrameParticles0V[p]      = mm_int4(pAi0[p], pBi0[p], pCi0[p], 0);
         }
         displacement1.initialize<mm_double4>(cc, cc.getPaddedNumAtoms(), "displacement1");
         displacement1.upload(displVector1);
@@ -4463,6 +4511,10 @@ void CommonCalcATMForceKernel::initialize(const System& system, const ATMForce& 
             displVector1[p] = mm_float4(d1[p][0], d1[p][1], d1[p][2], 0);
             displVector0[p] = mm_float4(d0[p][0], d0[p][1], d0[p][2], 0);
             displParticlesVector[p] = mm_int4(j1[p], i1[p], j0[p], i0[p]);
+            displDestinationFrameParticles1V[p] = mm_int4(pAj1[p], pBj1[p], pCj1[p], 0);
+            displSourceFrameParticles1V[p]      = mm_int4(pAi1[p], pBi1[p], pCi1[p], 0);
+            displDestinationFrameParticles0V[p] = mm_int4(pAj0[p], pBj0[p], pCj0[p], 0);
+            displSourceFrameParticles0V[p]      = mm_int4(pAi0[p], pBi0[p], pCi0[p], 0);
         }
         displacement1.initialize<mm_float4>(cc, cc.getPaddedNumAtoms(), "displacement1");
         displacement1.upload(displVector1);
@@ -4471,6 +4523,18 @@ void CommonCalcATMForceKernel::initialize(const System& system, const ATMForce& 
     }
     displParticles.initialize<mm_int4>(cc, cc.getPaddedNumAtoms(), "displParticles");
     displParticles.upload(displParticlesVector);
+    
+    displDestinationFrameParticles1.initialize<mm_int4>(cc, cc.getPaddedNumAtoms(), "displDestinationFrameParticles1");
+    displDestinationFrameParticles1.upload(displDestinationFrameParticles1V);
+
+    displSourceFrameParticles1.initialize<mm_int4>(cc, cc.getPaddedNumAtoms(), "displSourceFrameParticles1");
+    displSourceFrameParticles1.upload(displSourceFrameParticles1V);
+
+    displDestinationFrameParticles0.initialize<mm_int4>(cc, cc.getPaddedNumAtoms(), "displDestinationFrameParticles0");
+    displDestinationFrameParticles0.upload(displDestinationFrameParticles0V);
+
+    displSourceFrameParticles0.initialize<mm_int4>(cc, cc.getPaddedNumAtoms(), "displSourceFrameParticles0");
+    displSourceFrameParticles0.upload(displSourceFrameParticles0V);
 
     dforce0.initialize(cc, cc.getLongForceBuffer().getSize(), cc.getLongForceBuffer().getElementSize(), "dforce0");
     dforce1.initialize(cc, cc.getLongForceBuffer().getSize(), cc.getLongForceBuffer().getElementSize(), "dforce1");
@@ -4518,6 +4582,8 @@ void CommonCalcATMForceKernel::initKernels(ContextImpl& context, ContextImpl& in
         copyStateKernel->addArg(displacement0);
         copyStateKernel->addArg(displacement1);
         copyStateKernel->addArg(displParticles);
+        copyStateKernel->addArg(displDestinationFrameParticles1); // TO-DO: implement 0-state frame displacements
+        copyStateKernel->addArg(displSourceFrameParticles1); 
         copyStateKernel->addArg(cc.getAtomIndexArray());
         copyStateKernel->addArg(invAtomOrder);
         copyStateKernel->addArg(inner0InvAtomOrder);
@@ -4539,11 +4605,14 @@ void CommonCalcATMForceKernel::initKernels(ContextImpl& context, ContextImpl& in
         displForceKernel  = program->createKernel("displForce");
         displForceKernel->addArg(numParticles);
         displForceKernel->addArg(cc.getPaddedNumAtoms());
+        displForceKernel->addArg(cc.getPosq());
         displForceKernel->addArg(cc0.getLongForceBuffer());
         displForceKernel->addArg(cc1.getLongForceBuffer());
         displForceKernel->addArg(dforce0);
         displForceKernel->addArg(dforce1);
         displForceKernel->addArg(displParticles);
+        displForceKernel->addArg(displDestinationFrameParticles1); // TO-DO: implement 0-state frame displacements
+        displForceKernel->addArg(displSourceFrameParticles1); 
         displForceKernel->addArg(cc.getAtomIndexArray());
         displForceKernel->addArg(invAtomOrder);
         displForceKernel->addArg(inner0InvAtomOrder);
@@ -4628,11 +4697,27 @@ void CommonCalcATMForceKernel::copyParametersToContext(ContextImpl& context, con
     vector<int> i1(numParticles);
     vector<int> j0(numParticles);
     vector<int> i0(numParticles);
+    vector<int> pAj1(numParticles);
+    vector<int> pBj1(numParticles);
+    vector<int> pCj1(numParticles);
+    vector<int> pAi1(numParticles);
+    vector<int> pBi1(numParticles);
+    vector<int> pCi1(numParticles);
+    vector<int> pAj0(numParticles);
+    vector<int> pBj0(numParticles);
+    vector<int> pCj0(numParticles);
+    vector<int> pAi0(numParticles);
+    vector<int> pBi0(numParticles);
+    vector<int> pCi0(numParticles);
     vector<Vec3> d1(numParticles);
     vector<Vec3> d0(numParticles);
-    loadParams(numParticles, force, d1, d0, j1, i1, j0, i0);
+    loadParams(numParticles, force, d1, d0, j1, i1, j0, i0, pAj1, pBj1, pCj1, pAi1, pBi1, pCi1, pAj0, pBj0, pCj0, pAi0, pBi0, pCi0);
 
     vector<mm_int4> displParticlesVector(cc.getPaddedNumAtoms(), mm_int4(-1, -1, -1, -1));
+    vector<mm_int4> displDestinationFrameParticles1V(cc.getPaddedNumAtoms(), mm_int4(-1, -1, -1, -1));
+    vector<mm_int4> displSourceFrameParticles1V(cc.getPaddedNumAtoms(), mm_int4(-1, -1, -1, -1));
+    vector<mm_int4> displDestinationFrameParticles0V(cc.getPaddedNumAtoms(), mm_int4(-1, -1, -1, -1));
+    vector<mm_int4> displSourceFrameParticles0V(cc.getPaddedNumAtoms(), mm_int4(-1, -1, -1, -1));
     if (cc.getUseDoublePrecision()) {
         vector<mm_double4> displVector1(cc.getPaddedNumAtoms(), mm_double4(0, 0, 0, 0));
         vector<mm_double4> displVector0(cc.getPaddedNumAtoms(), mm_double4(0, 0, 0, 0));
@@ -4640,6 +4725,10 @@ void CommonCalcATMForceKernel::copyParametersToContext(ContextImpl& context, con
             displVector1[p] = mm_double4(d1[p][0], d1[p][1], d1[p][2], 0);
             displVector0[p] = mm_double4(d0[p][0], d0[p][1], d0[p][2], 0);
             displParticlesVector[p] = mm_int4(j1[p], i1[p], j0[p], i0[p]);
+            displDestinationFrameParticles1V[p] = mm_int4(pAj1[p], pBj1[p], pCj1[p], 0);
+            displSourceFrameParticles1V[p]      = mm_int4(pAi1[p], pBi1[p], pCi1[p], 0);
+            displDestinationFrameParticles0V[p] = mm_int4(pAj0[p], pBj0[p], pCj0[p], 0);
+            displSourceFrameParticles0V[p]      = mm_int4(pAi0[p], pBi0[p], pCi0[p], 0);
         }
         displacement1.upload(displVector1);
         displacement0.upload(displVector0);
@@ -4651,11 +4740,19 @@ void CommonCalcATMForceKernel::copyParametersToContext(ContextImpl& context, con
             displVector1[p] = mm_float4(d1[p][0], d1[p][1], d1[p][2], 0);
             displVector0[p] = mm_float4(d0[p][0], d0[p][1], d0[p][2], 0);
             displParticlesVector[p] = mm_int4(j1[p], i1[p], j0[p], i0[p]);
+            displDestinationFrameParticles1V[p] = mm_int4(pAj1[p], pBj1[p], pCj1[p], 0);
+            displSourceFrameParticles1V[p]      = mm_int4(pAi1[p], pBi1[p], pCi1[p], 0);
+            displDestinationFrameParticles0V[p] = mm_int4(pAj0[p], pBj0[p], pCj0[p], 0);
+            displSourceFrameParticles0V[p]      = mm_int4(pAi0[p], pBi0[p], pCi0[p], 0);
         }
         displacement1.upload(displVector1);
         displacement0.upload(displVector0);
     }
     displParticles.upload(displParticlesVector);
+    displDestinationFrameParticles1.upload(displDestinationFrameParticles1V);
+    displSourceFrameParticles1.upload(displSourceFrameParticles1V);
+    displDestinationFrameParticles0.upload(displDestinationFrameParticles0V);
+    displSourceFrameParticles0.upload(displSourceFrameParticles0V);
 }
 
 class CommonCalcCustomCPPForceKernel::StartCalculationPreComputation : public ComputeContext::ForcePreComputation {

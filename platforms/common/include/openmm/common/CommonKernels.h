@@ -1441,13 +1441,24 @@ private:
     class ReorderListener;
 
     void initKernels(ContextImpl& context, ContextImpl& innerContext0, ContextImpl& innerContext1);
-    void loadParams(int numParticles, const ATMForce& force, std::vector<Vec3>& d1, std::vector<Vec3>& d0, std::vector<int>& j1, std::vector<int>& i1, std::vector<int>& j0, std::vector<int>& i0);
+    void loadParams(int numParticles, const ATMForce& force, std::vector<Vec3>& d1, std::vector<Vec3>& d0,
+                    std::vector<int>& j1, std::vector<int>& i1, std::vector<int>& j0, std::vector<int>& i0,
+                    std::vector<int>& pAj1, std::vector<int>& pBj1, std::vector<int>& pCj1,
+                    std::vector<int>& pAi1, std::vector<int>& pBi1, std::vector<int>& pCi1,
+                    std::vector<int>& pAj0, std::vector<int>& pBj0, std::vector<int>& pCj0,
+                    std::vector<int>& pAi0, std::vector<int>& pBi0, std::vector<int>& pCi0);
 
     bool hasInitializedKernel;
     ComputeContext& cc;
     ComputeArray displacement1, displacement0; // fixed lab-frame displacements
     ComputeArray displParticles;               // variable displacements based on atom positions
-                                               // int4 arranged as (pDestination1, pOrigin1, pDestination0, pOrigin0  
+                                               // int4 arranged as (pDestination1, pOrigin1, pDestination0, pOrigin0 )
+
+    ComputeArray displDestinationFrameParticles1; // frame-based displacements
+    ComputeArray displSourceFrameParticles1;      // each frame is arranged in int4 as (pOrigin, pDirection, pPlane, 0)
+    ComputeArray displDestinationFrameParticles0;
+    ComputeArray displSourceFrameParticles0;
+    
     ComputeArray invAtomOrder, inner0InvAtomOrder, inner1InvAtomOrder;
     ComputeArray dforce0, dforce1;             // forces due to variable displacements
     ComputeKernel copyStateKernel;

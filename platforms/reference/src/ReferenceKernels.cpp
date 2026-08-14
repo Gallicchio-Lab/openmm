@@ -3387,7 +3387,24 @@ void ReferenceCalcATMForceKernel::loadParams(int numParticles, const ATMForce& f
     pi1.resize(numParticles);
     pj0.resize(numParticles);
     pi0.resize(numParticles);
+    pAj1.resize(numParticles);
+    pBj1.resize(numParticles);
+    pCj1.resize(numParticles);
+    pAi1.resize(numParticles);
+    pBi1.resize(numParticles);
+    pCi1.resize(numParticles);
+    pAj0.resize(numParticles);
+    pBj0.resize(numParticles);
+    pCj0.resize(numParticles);
+    pAi0.resize(numParticles);
+    pBi0.resize(numParticles);
+    pCi0.resize(numParticles);
     for (int i = 0; i < numParticles; i++) {
+        displacement1[i] = Vec3(0, 0, 0);
+        displacement0[i] = Vec3(0, 0, 0);
+        pj1[i] = pi1[i] = pj0[i] = pi0[i] = -1;
+	pAj1[i] = pBj1[i] = pCj1[i] = pAi1[i] = pBi1[i] = pCi1[i] = -1;
+        pAj0[i] = pBj0[i] = pCj0[i] = pAi0[i] = pBi0[i] = pCi0[i] = -1;
         const ATMForce::CoordinateTransformation& transformation = force.getParticleTransformation(i);
         if (dynamic_cast<const ATMForce::FixedDisplacement*>(&transformation) != NULL) {
             const ATMForce::FixedDisplacement* fd = dynamic_cast<const ATMForce::FixedDisplacement*>(&transformation);
@@ -3395,16 +3412,32 @@ void ReferenceCalcATMForceKernel::loadParams(int numParticles, const ATMForce& f
             const Vec3 d0 = fd->getFixedDisplacement0();
             displacement1[i] = d1;
             displacement0[i] = d0;
-            pj1[i] = pi1[i] = pj0[i] = pi0[i] = -1;
         }
         else if (dynamic_cast<const ATMForce::ParticleOffsetDisplacement*>(&transformation) != NULL) {
-          const ATMForce::ParticleOffsetDisplacement* vd = dynamic_cast<const ATMForce::ParticleOffsetDisplacement*>(&transformation);
-            displacement1[i] = Vec3(0, 0, 0);
-            displacement0[i] = Vec3(0, 0, 0);
+            const ATMForce::ParticleOffsetDisplacement* vd = dynamic_cast<const ATMForce::ParticleOffsetDisplacement*>(&transformation);
             pj1[i] = vd->getDestinationParticle1();
             pi1[i] = vd->getOriginParticle1();
             pj0[i] = vd->getDestinationParticle0();
             pi0[i] = vd->getOriginParticle0();
+        }
+	else if (dynamic_cast<const ATMForce::ParticleFrameDisplacement*>(&transformation) != NULL) {
+	    const ATMForce::ParticleFrameDisplacement* fd = dynamic_cast<const ATMForce::ParticleFrameDisplacement*>(&transformation);
+
+            pAj1[i] = fd->getTargetOriginParticle1();
+            pBj1[i] = fd->getTargetDirectionParticle1();
+            pCj1[i] = fd->getTargetPlaneParticle1();
+
+            pAi1[i] = fd->getSourceOriginParticle1();
+            pBi1[i] = fd->getSourceDirectionParticle1();
+            pCi1[i] = fd->getSourcePlaneParticle1();
+
+            pAj0[i] = fd->getTargetOriginParticle0();
+            pBj0[i] = fd->getTargetDirectionParticle0();
+            pCj0[i] = fd->getTargetPlaneParticle0();
+
+            pAi0[i] = fd->getSourceOriginParticle0();
+            pBi0[i] = fd->getSourceDirectionParticle0();
+            pCi0[i] = fd->getSourcePlaneParticle0();
         }
         else {
             throw OpenMMException("loadParams(): invalid particle Transformation");
@@ -3421,33 +3454,269 @@ void ReferenceCalcATMForceKernel::initialize(const System& system, const ATMForc
     loadParams(numParticles, force);
 }
 
+Vec3 ReferenceCalcATMForceKernel::transformPosition4(
+    const Vec3& A1,
+    const Vec3& B1,
+    const Vec3& C1,
+    const Vec3& A2,
+    const Vec3& B2,
+    const Vec3& C2,
+    const Vec3& P1){
+
+    // Construct Frame 1 Orientation
+    Vec3 v1 = B1 - A1;
+    Vec3 u1 = C1 - A1;
+    Vec3 z1 = v1/std::sqrt(v1.dot(v1));
+    double h1 = u1.dot(z1);
+    Vec3 X1 = u1 - z1*h1;
+    Vec3 x1 = X1/std::sqrt(X1.dot(X1));
+    Vec3 y1 = z1.cross(x1);
+    
+    // Project P1 into Local Frame 1 Space
+    Vec3 dP1 = P1 - A1;
+    Vec3 P_local = Vec3(dP1.dot(x1), dP1.dot(y1), dP1.dot(z1));
+    
+    // Construct Frame 2 Orientation
+    Vec3 v2 = B2 - A2;
+    Vec3 u2 = C2 - A2;
+    Vec3 z2 = v2/std::sqrt(v2.dot(v2));
+    double h2 = u2.dot(z2);
+    Vec3 X2 = u2 - z2*h2;
+    Vec3 x2 = X2/std::sqrt(X2.dot(X2));
+    Vec3 y2 = z2.cross(x2);
+    
+    // Apply local coordinates to Frame 2
+    Vec3 P2 = A2 + x2*P_local[0] + y2*P_local[1] + z2*P_local[2];
+    return P2;
+}
+
+void ReferenceCalcATMForceKernel::rtTransformSymPy4(Vec3& p_in,
+                                                    Vec3& grad_in,
+                                                    Vec3& a1, Vec3& b1, Vec3& c1,
+                                                    Vec3& a2, Vec3& b2, Vec3& c2,
+                                                    Vec3& p_out,
+                                                    Vec3& grad_p_out,
+                                                    Vec3& grad_a1_out,
+                                                    Vec3& grad_b1_out,
+                                                    Vec3& grad_c1_out,
+                                                    Vec3& grad_a2_out,
+                                                    Vec3& grad_b2_out,
+                                                    Vec3& grad_c2_out) {
+
+    // ==========================================================
+    // 1. FORWARD PASS (Compute intermediate states)
+    // ==========================================================
+    
+    // Frame 1 Orientation
+    Vec3 v1 = b1 - a1;
+    Vec3 u1 = c1 - a1;
+    double v1_norm = std::sqrt(v1.dot(v1));
+    Vec3 z1 = v1 / v1_norm;
+    double h1 = u1.dot(z1);
+    Vec3 X1 = u1 - z1 * h1;
+    double X1_norm = std::sqrt(X1.dot(X1));
+    Vec3 x1 = X1 / X1_norm;
+    Vec3 y1 = z1.cross(x1);
+    
+    // Project P1 into Local Frame 1 Space
+    Vec3 dP1 = p_in - a1;
+    Vec3 p_local(dP1.dot(x1), dP1.dot(y1), dP1.dot(z1));
+    
+    // Frame 2 Orientation
+    Vec3 v2 = b2 - a2;
+    Vec3 u2 = c2 - a2;
+    double v2_norm = std::sqrt(v2.dot(v2));
+    Vec3 z2 = v2 / v2_norm;
+    double h2 = u2.dot(z2);
+    Vec3 X2 = u2 - z2 * h2;
+    double X2_norm = std::sqrt(X2.dot(X2));
+    Vec3 x2 = X2 / X2_norm;
+    Vec3 y2 = z2.cross(x2);
+    
+    // Calculate Global coordinates in Frame 2
+    p_out = a2 + x2 * p_local[0] + y2 * p_local[1] + z2 * p_local[2];
+
+    // ==========================================================
+    // 2. BACKWARD PASS (Vector-based Chain Rule / Gradients)
+    // ==========================================================
+    
+    // The incoming gradient on P2 is given by grad_in
+    Vec3 F_p_out = grad_in;
+
+    // --- Backprop through Frame 2 Projection ---
+    // p_out = a2 + x2*px + y2*py + z2*pz
+    grad_a2_out = F_p_out; 
+    
+    Vec3 F_x2 = F_p_out * p_local[0];
+    Vec3 F_y2 = F_p_out * p_local[1];
+    Vec3 F_z2 = F_p_out * p_local[2];
+    Vec3 F_p_local(F_p_out.dot(x2), F_p_out.dot(y2), F_p_out.dot(z2));
+
+    // --- Backprop through Frame 2 Orientation ---
+    // 1. Cross Product: y = z cross x
+    // If a = b cross c, then F_b = c cross F_a  and  F_c = F_a cross b
+    Vec3 F_z2_mod = F_z2 + x2.cross(F_y2);
+    Vec3 F_x2_mod = F_x2 + F_y2.cross(z2);
+
+    // 2. Normalization: x = X / |X|
+    Vec3 F_X2 = (F_x2_mod - x2 * F_x2_mod.dot(x2)) / X2_norm;
+
+    // 3. Orthogonalization: X = u - (u dot z) * z
+    double F_X2_dot_z2 = F_X2.dot(z2);
+    Vec3 F_u2 = F_X2 - z2 * F_X2_dot_z2;
+    F_z2_mod = F_z2_mod - F_X2 * h2 - u2 * F_X2_dot_z2;
+
+    // 4. Normalization: z = v / |v|
+    Vec3 F_v2 = (F_z2_mod - z2 * F_z2_mod.dot(z2)) / v2_norm;
+
+    // 5. Vectors: v = B - A,  u = C - A
+    grad_b2_out = F_v2;
+    grad_c2_out = F_u2;
+    grad_a2_out -= (F_v2 + F_u2);
+
+    // --- Backprop through Local Projection ---
+    // p_local = (dP1 dot x1, dP1 dot y1, dP1 dot z1)
+    Vec3 F_dP1 = x1 * F_p_local[0] + y1 * F_p_local[1] + z1 * F_p_local[2];
+    Vec3 F_x1  = dP1 * F_p_local[0];
+    Vec3 F_y1  = dP1 * F_p_local[1];
+    Vec3 F_z1  = dP1 * F_p_local[2];
+
+    // dP1 = p_in - a1
+    grad_p_out  = F_dP1;
+    grad_a1_out = Vec3(0,0,0) - F_dP1; // Equivalent to -F_dP1
+
+    // --- Backprop through Frame 1 Orientation ---
+    // 1. Cross Product
+    Vec3 F_z1_mod = F_z1 + x1.cross(F_y1);
+    Vec3 F_x1_mod = F_x1 + F_y1.cross(z1);
+
+    // 2. Normalization
+    Vec3 F_X1 = (F_x1_mod - x1 * F_x1_mod.dot(x1)) / X1_norm;
+
+    // 3. Orthogonalization
+    double F_X1_dot_z1 = F_X1.dot(z1);
+    Vec3 F_u1 = F_X1 - z1 * F_X1_dot_z1;
+    F_z1_mod = F_z1_mod - F_X1 * h1 - u1 * F_X1_dot_z1;
+
+    // 4. Normalization
+    Vec3 F_v1 = (F_z1_mod - z1 * F_z1_mod.dot(z1)) / v1_norm;
+
+    // 5. Vectors
+    grad_b1_out = F_v1;
+    grad_c1_out = F_u1;
+    grad_a1_out -= (F_v1 + F_u1);
+}
+
 void ReferenceCalcATMForceKernel::setDisplacements(vector<Vec3>& pos){
   numParticles = pos.size();
 
   for (int i = 0; i < numParticles; i++) {
-    if (pj1[i] >= 0 && pi1[i] >= 0){
-        displ1[i] = pos[pj1[i]] - pos[pi1[i]];
-        if (pi0[i] >= 0 && pj0[i] >= 0){
-            displ0[i] = pos[pj0[i]] - pos[pi0[i]];
-        }else{
-            displ0[i] = Vec3();
-        }
-    }else{
-        displ1[i] = displacement1[i];
-        displ0[i] = displacement0[i];
-    }
+      displ1[i] = Vec3();
+      displ0[i] = Vec3();
+
+      if (pj1[i] >= 0 && pi1[i] >= 0){
+          // particle-based displacement
+          displ1[i] = pos[pj1[i]] - pos[pi1[i]];
+          if (pi0[i] >= 0 && pj0[i] >= 0){
+              displ0[i] = pos[pj0[i]] - pos[pi0[i]];
+          }
+      }else if(pAj1[i] >= 0){
+          // frame-based displacement
+          Vec3 P1 = pos[i];
+          //  source frame
+          Vec3 A1 = pos[pAi1[i]];
+          Vec3 B1 = pos[pBi1[i]];
+          Vec3 C1 = pos[pCi1[i]];
+          //  destination frame
+          Vec3 A2 = pos[pAj1[i]];
+          Vec3 B2 = pos[pBj1[i]];
+          Vec3 C2 = pos[pCj1[i]];
+          //  transformed position
+          Vec3 P2 = transformPosition4(A1, B1, C1,
+                                       A2, B2, C2, P1);
+          //  displacement vector
+          displ1[i] = P2 - P1;
+          
+          //DEBUG
+          /*
+          cout << "setDisplacements: " << i << " "                \
+               << P1[0] << " " << P1[1] << " " << P1[2] << " "      \
+               << P2[0] << " " << P2[1] << " " << P2[2] << " "      \
+               << endl;
+          */ 
+
+          // TO-DO: frame-based displacements for reference state
+      }else{
+          displ1[i] = displacement1[i];
+          displ0[i] = displacement0[i];
+      }
   }
 }
 
 
 //Add forces from variable displacements
-void ReferenceCalcATMForceKernel::displForces(vector<Vec3>& force0, vector<Vec3>& force1){
+void ReferenceCalcATMForceKernel::displForces(vector<Vec3>& pos, vector<Vec3>& force0, vector<Vec3>& force1){
     vector<Vec3> dforce1(numParticles), dforce0(numParticles);
 
     for (int i = 0; i < numParticles; i++){
         if (pj1[i] >= 0 && pi1[i] >= 0){
+            // particle-based displacement
+            //
+            //for particles in the variable region this adds the forces to the anchor atoms
+            //for the anchor atoms, this effectively swaps their forces
+            //note that dforce1 is added to force1 below
             dforce1[pj1[i]] += force1[i];
             dforce1[pi1[i]] -= force1[i];
+        }else if(pAj1[i] >= 0){
+            // frame-based displacement
+            Vec3 P1 = pos[i];
+            Vec3 P2;
+            //  source frame
+            Vec3 A1 = pos[pAi1[i]];
+            Vec3 B1 = pos[pBi1[i]];
+            Vec3 C1 = pos[pCi1[i]];
+            //  destination frame
+            Vec3 A2 = pos[pAj1[i]];
+            Vec3 B2 = pos[pBj1[i]];
+            Vec3 C2 = pos[pCj1[i]];
+            //  transfromed forces on particle and frame particles
+            Vec3 grad_in = -force1[i];
+            Vec3 grad_p_out;
+            Vec3 grad_a1_out;
+            Vec3 grad_b1_out;
+            Vec3 grad_c1_out;
+            Vec3 grad_a2_out;
+            Vec3 grad_b2_out;
+            Vec3 grad_c2_out;
+            rtTransformSymPy4(P1,
+                              grad_in,
+                              A1, B1, C1,
+                              A2, B2, C2,
+                              P2,
+                              grad_p_out,
+                              grad_a1_out,
+                              grad_b1_out,
+                              grad_c1_out,
+                              grad_a2_out,
+                              grad_b2_out,
+                              grad_c2_out);
+            //replaces the force on particle i with the transformed force
+            dforce1[i] = -grad_p_out - force1[i];
+            //adds the forces for the anchor atoms of this particle
+            dforce1[pAi1[i]] -= grad_a1_out;
+            dforce1[pBi1[i]] -= grad_b1_out;
+            dforce1[pCi1[i]] -= grad_c1_out;
+            dforce1[pAj1[i]] -= grad_a2_out;
+            dforce1[pBj1[i]] -= grad_b2_out;
+            dforce1[pCj1[i]] -= grad_c2_out;
+
+            //DEBUG
+            /*
+              cout << "displForcesCPU: " << i << " "                    \
+                 << -grad_in[0] << " " << -grad_in[1] << " " << -grad_in[2] << " " \
+                 << dforce1[i][0] << " " << dforce1[i][1] << " " << dforce1[i][2] << " " \
+                 << endl;
+            */
         }
     }
     for (int i = 0; i < numParticles; i++){
@@ -3459,6 +3728,7 @@ void ReferenceCalcATMForceKernel::displForces(vector<Vec3>& force0, vector<Vec3>
             dforce0[pj0[i]] += force0[i];
             dforce0[pi0[i]] -= force0[i];
         }
+        // TO-DO: frame-based displacements for reference state
     }
     for (int i = 0; i < numParticles; i++){
         force0[i] += dforce0[i];
@@ -3467,12 +3737,13 @@ void ReferenceCalcATMForceKernel::displForces(vector<Vec3>& force0, vector<Vec3>
 
 void ReferenceCalcATMForceKernel::applyForces(ContextImpl& context, ContextImpl& innerContext0, ContextImpl& innerContext1,
         double dEdu0, double dEdu1, const map<string, double>& energyParamDerivs) {
+    vector<Vec3>& pos = extractPositions(context);
     vector<Vec3>& force = extractForces(context);
     vector<Vec3>& force0 = extractForces(innerContext0);
     vector<Vec3>& force1 = extractForces(innerContext1);
 
     //add gradients from variable displacements
-    displForces(force0, force1);
+    displForces(pos, force0, force1);
 
     //protects from infinite forces when the hybrid potential does
     //not depend on u1 or u0, typically at the endpoints

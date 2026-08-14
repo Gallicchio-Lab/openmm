@@ -298,6 +298,7 @@ public:
     class CoordinateTransformation;
     class FixedDisplacement;
     class ParticleOffsetDisplacement;
+    class ParticleFrameDisplacement;
 
     /**
      * Add a particle to the force with a coordinate transformation method
@@ -615,6 +616,68 @@ public:
  private:
     int pDestination1, pOrigin1, pDestination0, pOrigin0;
 };
+
+
+/**
+ * The ParticleFrameDisplacement class describes a coordinate transformation in which a particle is transferred from a source internal coordinate frame of a molecule to a target coordinate frame keeping the local coordinates of the particle in the two frames unchanged. This transformation essentially moves a particle from one molecular neighborhood to another preserving the local topology. The origin and target coordinate sites of the source frame are specified by the indexes of three distinct, non-colinear particles (piOrigin1, piDirection1, and piPlane1). The first sets the origin of the frame, the second the direction of the z-axis, and the third sets the orientation of the xz-plane. The corresponding atoms of the target frame are called pjOrigin1, pjDirection1, and pjPlane1. The final position of the particle is obtained by imposing the local coordinates of the source frame onto the target frame. As the position of the particle and the the particles that define the two frames move, the transformed particle position changes keeping the the local coordinates in each frame the same. 
+
+ * To use this feature, create a ParticleFrameDisplacement class passing the indexes of the six particles pjOrigin1, pjDirection1, pjPlane1 and piOrigin1, piDirection1, piPlane1 defining the two frames. Optionally, a second set of six particles, pjOrigin0, pjDirection0, etc. can be specified to apply a similar coordinate transformation at the reference state of the ATMForce.
+ */
+class ATMForce::ParticleFrameDisplacement : public ATMForce::CoordinateTransformation {
+public:
+    ParticleFrameDisplacement(int pjOrigin1, int pjDirection1, int pjPlane1,
+			      int piOrigin1, int piDirection1, int piPlane1,
+			      int pjOrigin0 = -1, int pjDirection0 = -1, int pjPlane0 = -1,
+			      int piOrigin0 = -1, int piDirection0 = -1, int piPlane0 = -1):
+	pjOrigin1(pjOrigin1), pjDirection1(pjDirection1), pjPlane1(pjPlane1),
+	piOrigin1(piOrigin1), piDirection1(piDirection1), piPlane1(piPlane1),
+	pjOrigin0(pjOrigin0), pjDirection0(pjDirection0), pjPlane0(pjPlane0),
+	piOrigin0(piOrigin0), piDirection0(piDirection0), piPlane0(piPlane0){
+    }
+    ~ParticleFrameDisplacement() override {}
+    int getTargetOriginParticle1() const {
+        return pjOrigin1;
+    }
+    int getTargetDirectionParticle1() const {
+        return pjDirection1;
+    }
+    int getTargetPlaneParticle1() const {
+        return pjPlane1;
+    }
+    int getSourceOriginParticle1() const {
+        return piOrigin1;
+    }
+    int getSourceDirectionParticle1() const {
+        return piDirection1;
+    }
+    int getSourcePlaneParticle1() const {
+        return piPlane1;
+    }
+    int getTargetOriginParticle0() const {
+        return pjOrigin0;
+    }
+    int getTargetDirectionParticle0() const {
+        return pjDirection0;
+    }
+    int getTargetPlaneParticle0() const {
+        return pjPlane0;
+    }
+    int getSourceOriginParticle0() const {
+        return piOrigin0;
+    }
+    int getSourceDirectionParticle0() const {
+        return piDirection0;
+    }
+    int getSourcePlaneParticle0() const {
+        return piPlane0;
+    }
+private:
+    int pjOrigin1, pjDirection1, pjPlane1;
+    int piOrigin1, piDirection1, piPlane1;
+    int pjOrigin0, pjDirection0, pjPlane0;
+    int piOrigin0, piDirection0, piPlane0;
+};
+
 
 } // namespace OpenMM
 

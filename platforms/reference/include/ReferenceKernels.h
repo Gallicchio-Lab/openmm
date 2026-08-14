@@ -1974,12 +1974,45 @@ public:
     void copyState(ContextImpl& context, ContextImpl& innerContext0, ContextImpl& innerContext1);
 private:
     int numParticles;
+    
+    //fixed displacements
     std::vector<Vec3> displ1, displ0;
     std::vector<Vec3> displacement1, displacement0;
+
+    //variable particle-based displacements
     std::vector<int> pj1, pi1, pj0, pi0;
+    
+    //variable frame-based displacements
+    // i: source frame, j: target frame
+    // A: origin, B: direction, C: plane particle
+    // 1: perturbed state, 0: reference state
+    std::vector<int> pAj1, pBj1, pCj1, pAi1, pBi1, pCi1;
+    std::vector<int> pAj0, pBj0, pCj0, pAi0, pBi0, pCi0;
+
     void setDisplacements(std::vector<Vec3>& pos);
-    void displForces(std::vector<Vec3>& force0, std::vector<Vec3>& force1);
+    void displForces(std::vector<Vec3>& pos, std::vector<Vec3>& force0, std::vector<Vec3>& force1);
     void loadParams(int numParticles, const ATMForce& force);
+    Vec3 transformPosition4(
+        const Vec3& A1,
+        const Vec3& B1,
+        const Vec3& C1,
+        const Vec3& A2,
+        const Vec3& B2,
+        const Vec3& C2,
+        const Vec3& P1);
+    void rtTransformSymPy4(
+        Vec3& p_in,
+        Vec3& grad_in,
+        Vec3& a1, Vec3& b1, Vec3& c1,
+        Vec3& a2, Vec3& b2, Vec3& c2,
+        Vec3& p_out,
+        Vec3& grad_p_out,
+        Vec3& grad_a1_out,
+        Vec3& grad_b1_out,
+        Vec3& grad_c1_out,
+        Vec3& grad_a2_out,
+        Vec3& grad_b2_out,
+        Vec3& grad_c2_out);
 };
 
 /**
